@@ -1,17 +1,15 @@
 <?php
-namespace adLDAP\classes;
-use adLDAP\adLDAP;
 /**
  * PHP LDAP CLASS FOR MANIPULATING ACTIVE DIRECTORY 
- * Version 5.0.0
+ * Version 4.0.4
  * 
  * PHP Version 5 with SSL and LDAP support
  * 
  * Written by Scott Barnett, Richard Hyland
  *   email: scott@wiggumworld.com, adldap@richardhyland.com
- *   http://github.com/adldap/adLDAP
+ *   http://adldap.sourceforge.net/
  * 
- * Copyright (c) 2006-2014 Scott Barnett, Richard Hyland
+ * Copyright (c) 2006-2012 Scott Barnett, Richard Hyland
  * 
  * We'd appreciate any improvements or additions to be submitted back
  * to benefit the entire community :)
@@ -30,10 +28,11 @@ use adLDAP\adLDAP;
  * @package adLDAP
  * @subpackage Folders
  * @author Scott Barnett, Richard Hyland
- * @copyright (c) 2006-2014 Scott Barnett, Richard Hyland
+ * @copyright (c) 2006-2012 Scott Barnett, Richard Hyland
  * @license http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html LGPLv2.1
- * @version 5.0.0
- * @link http://github.com/adldap/adLDAP
+ * @revision $Revision: 97 $
+ * @version 4.0.4
+ * @link http://adldap.sourceforge.net/
  */
 require_once(dirname(__FILE__) . '/../adLDAP.php');
 
@@ -59,7 +58,7 @@ class adLDAPFolders {
     * @param string $dn The distinguished name to delete
     * @return bool
     */
-    public function delete($dn) { 
+    public function delete($dn){ 
         $result = ldap_delete($this->adldap->getLdapConnection(), $dn);
         if ($result != true) { 
             return false; 
@@ -79,7 +78,8 @@ class adLDAPFolders {
     * @param bool $type Specify a type of object to search for
     * @return array
     */
-    public function listing($folderName = NULL, $dnType = adLDAP::ADLDAP_FOLDER, $recursive = NULL, $type = NULL) {
+    public function listing($folderName = NULL, $dnType = adLDAP::ADLDAP_FOLDER, $recursive = NULL, $type = NULL) 
+    {
         if ($recursive === NULL) { $recursive = $this->adldap->getRecursiveGroups(); } //use the default option if they haven't set it
         if (!$this->adldap->getLdapBind()) { return false; }
 
@@ -104,6 +104,14 @@ class adLDAPFolders {
                 case 'domain':
                     $filter .= '(objectClass=builtinDomain)';
                     break;
+				//===== my case =====================================	
+				case 'folders':
+                    $filter .= '(|(objectClass=container)(objectClass=organizationalUnit)(objectClass=builtinDomain))';
+                    break;
+				case 'objects':
+                    $filter .= '(|(objectClass=contact)(objectClass=computer)(objectClass=user)(objectClass=group))';
+                    break;
+				//=====/my code =====================================	
                 default:
                     $filter .= '(objectClass=user)';
                     break;   
@@ -116,9 +124,33 @@ class adLDAPFolders {
         // This requires us to not have an OU= part, just the base_dn
         $searchOu = $this->adldap->getBaseDn();
         if (is_array($folderName)) {
-            $ou = $dnType . "=" . implode("," . $dnType . "=", $folderName);
-            $filter .= '(!(distinguishedname=' . $ou . ',' . $this->adldap->getBaseDn() . ')))';
-            $searchOu = $ou . ',' . $this->adldap->getBaseDn();
+			
+		//====== my filter ===============================================================
+			if ($dnType=="oucn") {
+				$ou1 = "ou=".implode(",ou=", $folderName);
+				$ou2 = "cn=".implode(",cn=", $folderName);
+				//$ou = "(|(".$ou1.")(".$ou2."))";
+				$filter .= '(|(!(distinguishedname='.$ou1.','.$this->adldap->getBaseDn() .'))(!(distinguishedname='.$ou2.','.$this->adldap->getBaseDn() .'))))';
+				$searchOu = $ou1 . ',' . $this->adldap->getBaseDn();
+				$searchOu2 = $ou2 . ',' . $this->adldap->getBaseDn();
+				//echo $filter;
+				//exit;
+			}
+			else {
+				$ou = $dnType . "=" . implode("," . $dnType . "=", $folderName);
+				$filter .= '(!(distinguishedname=' . $ou . ',' . $this->adldap->getBaseDn() . ')))';
+				$searchOu = $ou . ',' . $this->adldap->getBaseDn();
+			}			
+		//======/my filter ===============================================================
+			
+			
+		//====== original filter =========================================================
+            //$ou = $dnType . "=" . implode("," . $dnType . "=", $folderName);
+            //$filter .= '(!(distinguishedname=' . $ou . ',' . $this->adldap->getBaseDn() . ')))';
+            //$searchOu = $ou . ',' . $this->adldap->getBaseDn();
+		//======/original filter =========================================================
+			
+			
         }
         else {
             $filter .= '(!(distinguishedname=' . $this->adldap->getBaseDn() . ')))';
@@ -127,16 +159,21 @@ class adLDAPFolders {
         if ($recursive === true) {
             $sr = ldap_search($this->adldap->getLdapConnection(), $searchOu, $filter, array('objectclass', 'distinguishedname', 'samaccountname'));
             $entries = @ldap_get_entries($this->adldap->getLdapConnection(), $sr);
-            if (is_array($entries)) {
-                return $entries;
-            }
+            if (is_array($entries)) return $entries;
         }
         else {
             $sr = ldap_list($this->adldap->getLdapConnection(), $searchOu, $filter, array('objectclass', 'distinguishedname', 'samaccountname'));
             $entries = @ldap_get_entries($this->adldap->getLdapConnection(), $sr);
             if (is_array($entries)) {
-                return $entries;
+				return $entries;
             }
+			//======my code=================================================================
+			else {
+				$sr = ldap_list($this->adldap->getLdapConnection(), $searchOu2, $filter, array('objectclass', 'distinguishedname', 'samaccountname'));
+            	$entries = @ldap_get_entries($this->adldap->getLdapConnection(), $sr);
+				if (is_array($entries)) {return $entries;}
+			}
+			//=====/my code=================================================================
         }
         return false;
     }
@@ -147,8 +184,9 @@ class adLDAPFolders {
     * @param array $attributes Default attributes of the ou
     * @return bool
     */
-    public function create($attributes) {
-        if (!is_array($attributes)) { return "Attributes must be an array"; }
+    public function create($attributes)
+    {
+        if (!is_array($attributes)){ return "Attributes must be an array"; }
         if (!is_array($attributes["container"])) { return "Container attribute must be an array."; }
         if (!array_key_exists("ou_name",$attributes)) { return "Missing compulsory field [ou_name]"; }
         if (!array_key_exists("container",$attributes)) { return "Missing compulsory field [container]"; }
@@ -168,8 +206,10 @@ class adLDAPFolders {
         if ($result != true) { 
             return false; 
         }
+        
         return true;
     }
+    
 }
 
 ?>
